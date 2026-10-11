@@ -52,4 +52,11 @@ type eventHandlers struct {
 	// which cost four allocations per bar per frame. It points into the
 	// scrollbarView, which lives as long as the layout built from it.
 	scrollbar *ScrollbarCfg
+
+	// rowClick is the click target of a list-like row (ListBox, Tree,
+	// listCore), nil otherwise. The rows share the OnClick func
+	// rowOnClick, which reads it here, for the same reason as
+	// scrollbar: a closure per row cost one allocation per visible row
+	// per frame. See row_click.go.
+	rowClick *rowClick
 }

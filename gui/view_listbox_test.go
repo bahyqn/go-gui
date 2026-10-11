@@ -205,13 +205,28 @@ func TestListBoxReorderHoverNeedsOnSelect(t *testing.T) {
 		t.Fatal("expected rows")
 	}
 	row := &rows[0]
-	if row.Shape.events == nil || row.Shape.events.OnHover == nil {
-		t.Fatal("row has no hover handler")
+	if row.Shape.events == nil {
+		t.Fatal("row has no event handlers")
+	}
+	if row.Shape.events.hover.isSet() {
+		t.Error("row without OnSelect has a hover style")
 	}
 	before := w.viewState.mouseCursor
-	row.Shape.events.OnHover(EventCtx{row, &Event{}, w})
+	row.Shape.events.hover.apply(row.Shape, w)
 	if w.viewState.mouseCursor != before {
 		t.Error("row without OnSelect changed the mouse cursor")
+	}
+}
+
+// listBoxTestReorderClick is the click target listBoxBuildItems gives
+// the reorderable row id at drag index idx.
+func listBoxTestReorderClick(
+	cfg *ListBoxCfg, id string, idx int, itemIDs, layoutIDs []string,
+) *rowClick {
+	return &rowClick{
+		owner: newListBoxReorderClick(cfg, itemIDs, layoutIDs, 0, ""),
+		id:    id,
+		index: idx,
 	}
 }
 
@@ -601,16 +616,14 @@ func TestListBoxDragIndexMemoized(t *testing.T) {
 func TestListBoxReorderItemView(t *testing.T) {
 	// The reorder row carries its layout ID and a11y role.
 	cfg := ListBoxCfg{ID: "lb"}
-	view := listBoxReorderItemView(
+	view := listBoxReorderItemView(nil,
 		ListBoxOption{ID: "a", Name: "Alpha"},
 		cfg,
 		nil,
 		"",
-		0,
-		[]string{"a"},
-		[]string{"lb:item:a"},
-		0,
-		"",
+		listBoxTestReorderClick(&cfg, "a", 0,
+			[]string{"a"}, []string{"lb:item:a"}),
+		"lb:item:a",
 	)
 	w := newTestWindow()
 	w.layout = Layout{Shape: &Shape{ID: "root"}}
@@ -628,16 +641,14 @@ func TestListBoxReorderItemView(t *testing.T) {
 
 func TestListBoxReorderItemViewSelectedState(t *testing.T) {
 	cfg := ListBoxCfg{ID: "lb", SelectedIDs: []string{"a"}}
-	view := listBoxReorderItemView(
+	view := listBoxReorderItemView(nil,
 		ListBoxOption{ID: "a", Name: "Alpha"},
 		cfg,
 		listCoreSelectedSet(cfg.SelectedIDs),
 		"",
-		0,
-		[]string{"a"},
-		[]string{"lb:item:a"},
-		0,
-		"",
+		listBoxTestReorderClick(&cfg, "a", 0,
+			[]string{"a"}, []string{"lb:item:a"}),
+		"lb:item:a",
 	)
 	layout := generateViewLayout(view, newTestWindow())
 	if !layout.Shape.A11YState.Has(AccessStateSelected) {
@@ -653,16 +664,15 @@ func TestListBoxReorderItemViewClickArmsDrag(t *testing.T) {
 	}
 	var selected []string
 	cfg.OnSelect = func(ids []string, ctx EventCtx) { selected = ids }
-	view := listBoxReorderItemView(
+	view := listBoxReorderItemView(nil,
 		ListBoxOption{ID: "a", Name: "A"},
 		cfg,
 		nil,
 		"",
-		0,
-		[]string{"a", "b"},
-		[]string{"lb-drag:item:a", "lb-drag:item:b"},
-		0,
-		"",
+		listBoxTestReorderClick(&cfg, "a", 0,
+			[]string{"a", "b"},
+			[]string{"lb-drag:item:a", "lb-drag:item:b"}),
+		"lb-drag:item:a",
 	)
 	w := newTestWindow()
 	w.layout = Layout{Shape: &Shape{ID: "root"}}
@@ -763,16 +773,14 @@ func TestListBoxFocusRowRingNotFill(t *testing.T) {
 func TestListBoxReorderItemViewFocusRing(t *testing.T) {
 	cfg := ListBoxCfg{ID: "lb-reo-ring"}
 	applyListBoxDefaults(&cfg)
-	view := listBoxReorderItemView(
+	view := listBoxReorderItemView(nil,
 		ListBoxOption{ID: "a", Name: "Alpha"},
 		cfg,
 		nil,
 		"a", // this row holds the keyboard focus
-		0,
-		[]string{"a"},
-		[]string{"lb-reo-ring:item:a"},
-		0,
-		"",
+		listBoxTestReorderClick(&cfg, "a", 0,
+			[]string{"a"}, []string{"lb-reo-ring:item:a"}),
+		"lb-reo-ring:item:a",
 	)
 	w := newTestWindow()
 	w.layout = Layout{Shape: &Shape{ID: "root"}}
@@ -848,7 +856,7 @@ func TestListBoxItemViewIDLessRowsTakeNoRing(t *testing.T) {
 	applyListBoxDefaults(&cfg)
 	w := newTestWindow()
 	for _, dat := range []ListBoxOption{{Name: "one"}, {Name: "two"}} {
-		view := listBoxItemView(dat, cfg, nil, "", nil)
+		view := listBoxItemView(w, dat, cfg, nil, "", nil)
 		layout := generateViewLayout(view, w)
 		if e := layout.Shape.events; e != nil && e.AmendLayout != nil {
 			t.Fatalf("ID-less row %q took a focus ring", dat.Name)
@@ -896,12 +904,13 @@ func TestListBoxReorderClickMovesKeyboardFocus(t *testing.T) {
 	cfg := ListBoxCfg{ID: "lb-reo-click"}
 	cfg.OnSelect = func([]string, EventCtx) {}
 	applyListBoxDefaults(&cfg)
-	view := listBoxReorderItemView(
+	view := listBoxReorderItemView(nil,
 		ListBoxOption{ID: "b", Name: "Beta"},
-		cfg, nil, "", 1,
-		[]string{"a", "b"},
-		[]string{"lb-reo-click:item:a", "lb-reo-click:item:b"},
-		0, "",
+		cfg, nil, "",
+		listBoxTestReorderClick(&cfg, "b", 1,
+			[]string{"a", "b"},
+			[]string{"lb-reo-click:item:a", "lb-reo-click:item:b"}),
+		"lb-reo-click:item:b",
 	)
 	w := newTestWindow()
 	w.layout = Layout{Shape: &Shape{ID: "root"}}
@@ -1046,5 +1055,64 @@ func TestListBoxNoHeightBuildsProbe(t *testing.T) {
 	first, last, _, _, _ = listBoxVisibleRange(short, &listBoxCache{}, w)
 	if first != 0 || last != 1 {
 		t.Errorf("short range = (%d,%d), want (0,1)", first, last)
+	}
+}
+
+// Every reorderable row carries the layout ID listBoxItemID composes
+// for it, also when subheadings sit between rows and the list is
+// scrolled so the window starts mid-list. The rows reuse the IDs
+// listBoxItemLayoutIDs already composed for drag tracking, indexed by
+// drag index minus midsOffset; this pins that the two agree.
+func TestListBoxReorderRowLayoutIDs(t *testing.T) {
+	data := make([]ListBoxOption, 0, 120)
+	for i := range 100 {
+		if i%10 == 0 {
+			s := strconv.Itoa(i)
+			data = append(data, ListBoxOption{
+				ID: "h-" + s, Name: "Head " + s, isSubheading: true})
+		}
+		data = append(data, listBoxTestData(i + 1)[i])
+	}
+	for _, scroll := range []float32{0, -900} {
+		w := newTestWindow()
+		w.scrollY().Set("lb-reo-ids", scroll)
+		layout := generateViewLayout(ListBox(ListBoxCfg{
+			ID:          "lb-reo-ids",
+			MaxHeight:   220,
+			Data:        data,
+			Reorderable: true,
+			OnSelect:    func([]string, EventCtx) {},
+			OnReorder:   func(string, string, EventCtx) {},
+		}), w)
+		got := 0
+		firstName := ""
+		for _, row := range listBoxRows(&layout) {
+			if row.Shape.ID == "" || row.Shape.A11YRole != AccessRoleListItem {
+				continue
+			}
+			name := row.Shape.a11Y.Label
+			if firstName == "" {
+				firstName = name
+			}
+			var want string
+			for i := range data {
+				if data[i].Name == name {
+					want = listBoxItemID("lb-reo-ids", data[i].ID)
+				}
+			}
+			if row.Shape.ID != want {
+				t.Errorf("scroll %v: row %q ID = %q, want %q",
+					scroll, name, row.Shape.ID, want)
+			}
+			got++
+		}
+		if got == 0 {
+			t.Fatalf("scroll %v: no reorderable rows built", scroll)
+		}
+		// The scrolled window must start past the first rows, or the
+		// midsOffset path goes untested.
+		if scroll != 0 && firstName == data[1].Name {
+			t.Fatalf("scroll %v: window starts at the top", scroll)
+		}
 	}
 }
