@@ -52,6 +52,12 @@ and this project adheres to
 
 ### Fixed
 
+- **A clip inside a rotation or blur no longer breaks it on the web (#1041).**
+  In the web backend, a clip inside a rotated or blurred element made the rest
+  of that element draw unrotated, and could leave the rotation or blur in force
+  after the element ended, so the rest of the frame drew rotated or blurred. The
+  clip replay undid the bracket instead of its own saves. Clips and brackets are
+  now replayed together, in order, so each keeps its place.
 - **Screen-reader clicks on the web keep working after the tree updates
   (#1038).** Each accessibility sync released the click callbacks of buttons,
   links and other actionable nodes, but left them attached to the DOM elements,
