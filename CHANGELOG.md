@@ -10,6 +10,38 @@ and this project adheres to
 
 ### Added
 
+- **Containers can be moved, turned, scaled, skewed and turned in 3D (#1019).**
+  `ContainerCfg.Transform` takes a `gui.Transform` built by chaining, for
+  example `gui.Rotate(8).Scale(1.05)` or `gui.RotateY(40).Perspective(800)`. The
+  container and everything in it is drawn through the transform on the GPU, and
+  layout ignores it, so neighbours do not move. The parts apply in a fixed order
+  (translate, perspective, rotateX, rotateY, rotate, skew, scale) about an
+  origin, by default the center of the box. `Transform.Lerp` blends two
+  transforms. To animate, set `ContainerCfg.TransformFn`: it is read each time
+  the container is drawn, so a spring with `AnimationRefreshRenderOnly` moves
+  the view without a rebuild. A clip inside a turned or skewed container stays
+  exact. `BackfaceHidden` makes the container draw nothing while its back faces
+  the viewer. The soft backend draws the transform exactly, perspective
+  included. The web backend and PDF output have no perspective, so they draw a
+  view with the flat transform that matches it at the center of the view. The
+  pointer hits the container and its children where they are drawn, through the
+  matrix the last frame drew with, perspective included, and a hidden back face
+  takes no pointer. `TestClick` aims at the drawn position too. A drag that
+  locks the mouse (a slider, a splitter, drag to scroll) from a press inside a
+  transformed container gets its moves in that container's own frame, so it
+  tracks the pointer as drawn. Tooltips, blur on a press outside the focused
+  widget and the soft keyboard test the pointer where the widget is drawn. The
+  IME candidate window and the accessibility bounds follow the drawn position,
+  and so do the bounds of a child of a `RotatedBox`. A float (a tooltip, a menu,
+  a dropdown) opens by where its parent is drawn and stays upright. Floats are
+  placed in layout, so while `TransformFn` moves a view in render-only frames,
+  its float stays put until the next layout. New `Window.LocalToWindow` and
+  `Window.WindowToLocal` map a point between a widget's own box and the window,
+  so an app can place an overlay by a moved view. A part drawn outside a parent
+  that does not clip takes no pointer, as for any child that overflows its
+  parent. `examples/transforms/` shows a hover lift, a tilted badge and a card
+  flip.
+
 - **Springs, tweens and keyframes can ask for render-only frames (#1016).**
   `SpringAnimation`, `TweenAnimation` and `KeyframeAnimation` have a new
   `Refresh` field. Set it to `AnimationRefreshRenderOnly` and each tick repaints
@@ -64,6 +96,34 @@ and this project adheres to
   which are reused. A screen-reader activation after the next sync called a
   released function. Each element now keeps one callback, attached while the
   node is actionable.
+- **On the web backend and in PDF output, a clip inside a turned view no longer
+  undoes the turn (#1019).** A `RotatedBox` saved its turn on the canvas or PDF
+  state stack, and the next clip change restored that stack, so the content
+  after it drew unturned. In PDF, a clip change inside a rounded clip also ended
+  the rounded clip. Both now keep their turns and clips themselves and set them
+  again after each change.
+
+- **A clipping container inside a `RotatedBox` is cut where it is drawn
+  (#1019).** Its clip was set in the unturned frame, so under a 90° turn a
+  scroll view or other clipping child was cut to a strip across the turned box.
+  Under a half turn, a parent clip that hid one end of the box hid the wrong end
+  of the content, so the part shown took no pointer and the hidden part did. On
+  the soft backend, a 90° `RotatedBox` was cut to a square by the clip around
+  it; it now draws whole. The IME candidate window of an input in a `RotatedBox`
+  now also sits by the turned caret.
+
+- **A drag ghost in a moved view follows the pointer (#1019).** The ghost of a
+  reorder drag inside a translated, turned or scaled container was placed by its
+  offset in the list's frame, so it sat where the list sits in layout instead of
+  where it is drawn. The offset is now mapped through the transform with the
+  anchor, as the anchor already was. The ghost itself stays upright.
+
+- **A float tracks a view animated without a layout (#1019).** A popover or
+  tooltip anchored to a container that `TransformFn` moves in render-only frames
+  stayed where layout put it while its host moved on. The render-only pass now
+  re-places anchored floats from the refreshed matrices, with their hit clips,
+  so they move with the host and match the next full frame.
+
 - **A driver that refuses vsync is reported (#1018).** The GL backends on
   Windows and X11 asked for swap interval 1 and ignored the answer. Now a
   refusal is reported under `gui.Debug` (`DebugWindowDegraded`). Since the

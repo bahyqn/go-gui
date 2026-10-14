@@ -118,10 +118,9 @@ func floatAttachLayout(
 	}
 
 	shape := layout.Shape
-	ax, ay := attachOffset(anchor, parent.Width, parent.Height)
+	ax, ay := floatAnchorPoint(layout, anchor)
 	tx, ty := attachOffset(tieOff, shape.Width, shape.Height)
-	x := parent.X + ax - tx + offsetX
-	y := parent.Y + ay - ty + offsetY
+	x, y := offsetThroughTransform(layout, anchor, offsetX, offsetY, ax, ay, tx, ty)
 
 	if !shape.floatAutoFlip {
 		return x, y
@@ -135,7 +134,7 @@ func floatAttachLayout(
 	if curOverY > 0 {
 		fa := flipVerticalAttach(anchor)
 		ft := flipVerticalAttach(tieOff)
-		_, fay := attachOffset(fa, parent.Width, parent.Height)
+		_, fay := floatAnchorPoint(layout, fa)
 		_, fty := attachOffset(ft, fw, fh)
 		// The offset is a gap from the anchor side. On the opposite
 		// side it must point the other way, or a gap becomes an overlap.
@@ -143,7 +142,7 @@ func floatAttachLayout(
 		if fa != anchor || ft != tieOff {
 			flipOffsetY = -offsetY
 		}
-		newY := parent.Y + fay - fty + flipOffsetY
+		newY := fay - fty + flipOffsetY
 		if overflowAxis(newY, fh, 0, winH) < curOverY {
 			y = newY
 			anchor = fa
@@ -156,14 +155,14 @@ func floatAttachLayout(
 	if curOverX > 0 {
 		fa := mirrorFloatAttach(anchor)
 		ft := mirrorFloatAttach(tieOff)
-		fax, _ := attachOffset(fa, parent.Width, parent.Height)
+		fax, _ := floatAnchorPoint(layout, fa)
 		ftx, _ := attachOffset(ft, fw, fh)
 		// See the vertical flip: the gap changes sign with the side.
 		flipOffsetX := offsetX
 		if fa != anchor || ft != tieOff {
 			flipOffsetX = -offsetX
 		}
-		newX := parent.X + fax - ftx + flipOffsetX
+		newX := fax - ftx + flipOffsetX
 		if overflowAxis(newX, fw, 0, winW) < curOverX {
 			x = newX
 		}
@@ -180,6 +179,127 @@ func floatAttachLayout(
 	y = max(y, 0)
 
 	return x, y
+}
+
+// floatAnchorPoint returns the window point a float with anchor a ties
+// to on its parent's box. Under a view transform or a quarter turn the
+// point is mapped out to where the parent is drawn (#1019). The float
+// itself is drawn in its own layer, outside those transforms, so it
+// stays upright beside the turned parent. A parent whose back face is
+// hidden has no drawn point, and the box point stands in.
+//
+// Floats are placed in layout, and a render-only frame re-places them
+// from the refreshed matrices (layoutReattachFloats), so a transform
+// that TransformFn moves carries its floats with it.
+func floatAnchorPoint(layout *Layout, a floatAttach) (float32, float32) {
+	p := layout.Parent
+	ax, ay := attachOffset(a, p.Shape.Width, p.Shape.Height)
+	x, y := p.Shape.X+ax, p.Shape.Y+ay
+	if wx, wy, ok := xfLocalToWindowClip(p, x, y, false); ok {
+		return wx, wy
+	}
+	return x, y
+}
+
+// offsetThroughTransform places a float from its mapped anchor (ax, ay,
+// in window coordinates) and its tie-off (tx, ty). The offset is in the
+// parent's layout frame, so under a view transform or a quarter turn the
+// offset point is mapped out to where it is drawn, and the tie-off taken
+// off there: a drag ghost inside a moved view tracks the pointer (#1019).
+// With no transform on the path the map is the identity, as before.
+func offsetThroughTransform(
+	layout *Layout,
+	anchor floatAttach,
+	offsetX, offsetY float32,
+	ax, ay, tx, ty float32,
+) (float32, float32) {
+	parent := layout.Parent.Shape
+	pax, pay := attachOffset(anchor, parent.Width, parent.Height)
+	if mx, my, ok := xfLocalToWindowClip(
+		layout.Parent, parent.X+pax+offsetX, parent.Y+pay+offsetY, false,
+	); ok {
+		return mx - tx, my - ty
+	}
+	return ax - tx + offsetX, ay - ty + offsetY
+}
+
+// layoutReattachFloats recomputes the position of every float in the
+// composed tree (w.layout) from its host's current box and transform,
+// shifting the float's subtree and refreshing its clips. It runs in a
+// render-only frame, where the boxes are frozen but TransformFn may have
+// moved a host (#1019). The matrices are refreshed first, so the anchors
+// map through the transforms the frame draws with, as the float pipelines
+// in layoutArrange see the main pipeline's fresh matrices. Hit clips move
+// with the floats, so hit testing follows what is drawn.
+//
+// Only anchored floats (Parent != nil) move; top-level floats against the
+// window rect are untouched. Nested floats live in their own top-level
+// layers, so the pass repeats until no float moves: a nested float reads
+// its host float's new position on the next pass.
+func layoutReattachFloats(w *Window) {
+	if w == nil || w.layout.Shape == nil {
+		return
+	}
+	if w.scratch.viewXforms.used == 0 {
+		return
+	}
+	layoutResolveTransforms(&w.layout, w)
+	win := w.windowRect()
+	for range 10 {
+		moved := false
+		for i := range w.layout.Children {
+			top := &w.layout.Children[i]
+			if top.Shape == nil || !top.Shape.Float {
+				continue
+			}
+			if reattachFloatSubtree(top, win, 0) {
+				layoutSetShapeClips(top, win)
+				moved = true
+			}
+		}
+		if !moved {
+			return
+		}
+	}
+}
+
+// reattachFloatSubtree walks ly pre-order, re-placing every anchored
+// float with floatAttachLayout and shifting its subtree by the delta.
+// A parent moves before its children, so a nested float reads its host's
+// new position. It reports whether anything moved.
+func reattachFloatSubtree(ly *Layout, win drawClip, depth int) bool {
+	if ly == nil || overMaxDepth(depth) {
+		return false
+	}
+	moved := false
+	if s := ly.Shape; s != nil && s.Float && ly.Parent != nil {
+		if nx, ny := floatAttachLayout(ly, win); nx != s.X || ny != s.Y {
+			shiftLayoutXY(ly, nx-s.X, ny-s.Y, 0)
+			moved = true
+		}
+	}
+	for i := range ly.Children {
+		if reattachFloatSubtree(&ly.Children[i], win, depth+1) {
+			moved = true
+		}
+	}
+	return moved
+}
+
+// shiftLayoutXY moves ly and all its descendants by (dx, dy). Clips are
+// refreshed by the caller (layoutSetShapeClips), since a float crossing
+// the window edge changes its clip size, not just its position.
+func shiftLayoutXY(ly *Layout, dx, dy float32, depth int) {
+	if ly == nil || overMaxDepth(depth) {
+		return
+	}
+	if s := ly.Shape; s != nil {
+		s.X += dx
+		s.Y += dy
+	}
+	for i := range ly.Children {
+		shiftLayoutXY(&ly.Children[i], dx, dy, depth+1)
+	}
 }
 
 // liftOverlayFloats extracts the floats declared inside an injected

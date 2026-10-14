@@ -144,7 +144,17 @@ func gestureHandlerDepth(
 	if overMaxDepth(depth) {
 		return
 	}
-	ox, oy := rotateCentroidInverse(layout.Shape, e)
+	// A transformed shape and its children are hit tested in its own
+	// frame.
+	if s := layout.Shape; s != nil && s.xf != nil {
+		px, py := e.CentroidX, e.CentroidY
+		e.CentroidX, e.CentroidY = xfCoordsInverse(s, px, py)
+		defer func() { e.CentroidX, e.CentroidY = px, py }()
+	}
+	// The children of a quarter turn are hit tested in its unturned
+	// frame, as the pointer walks do.
+	ox, oy := e.CentroidX, e.CentroidY
+	e.CentroidX, e.CentroidY = rotateCoordsInverse(layout.Shape, ox, oy)
 	for i := range slices.Backward(layout.Children) {
 		if !isChildEnabled(&layout.Children[i]) {
 			continue
@@ -186,33 +196,6 @@ func gestureHandlerDepth(
 			e.IsHandled = true
 		}
 	}
-}
-
-// rotateCentroidInverse applies the inverse rotation for
-// containers that use QuarterTurns, operating on centroid
-// coordinates.
-func rotateCentroidInverse(
-	s *Shape, e *Event,
-) (origX, origY float32) {
-	origX, origY = e.CentroidX, e.CentroidY
-	if s == nil || s.QuarterTurns == 0 {
-		return
-	}
-	cx := s.X + s.Width/2
-	cy := s.Y + s.Height/2
-	dx, dy := e.CentroidX-cx, e.CentroidY-cy
-	switch s.QuarterTurns {
-	case 1:
-		e.CentroidX = cx + dy
-		e.CentroidY = cy - dx
-	case 2:
-		e.CentroidX = cx - dx
-		e.CentroidY = cy - dy
-	case 3:
-		e.CentroidX = cx - dy
-		e.CentroidY = cy + dx
-	}
-	return
 }
 
 // synthMouse creates a synthetic mouse event and dispatches it

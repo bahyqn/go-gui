@@ -26,6 +26,23 @@ func renderLayoutDepth(layout *Layout, bgColor Color, clip drawClip, w *Window, 
 			ev.AmendLayout(EventCtx{layout, nil, w})
 		}
 	}
+	// The transform bracket opens first, so the view's own fill, its
+	// filter and all its children are drawn through it. Inside, the clip
+	// the parent passed is in the wrong frame, so drawing culls against
+	// nothing (xfUnboundedClip). The scissor still cuts in the window.
+	//
+	// A view turned to show its hidden back face draws nothing, nor do
+	// its children.
+	if xf := layout.Shape.xf; xf != nil {
+		if opened, unbounded := renderTransformBegin(layout.Shape, clip, w); opened {
+			if unbounded {
+				clip = xfUnboundedClip
+			}
+			defer renderTransformEnd(w)
+		} else if xf.hidden {
+			return
+		}
+	}
 	// Emit filter bracket when ColorFilter is set (containers only).
 	fx := layout.Shape.fx
 	hasColorFilter := fx != nil && fx.ColorFilter != nil && !w.inFilter
@@ -55,7 +72,7 @@ func renderLayoutDepth(layout *Layout, bgColor Color, clip drawClip, w *Window, 
 
 	shapeClip := clip
 	if layout.Shape.OverDraw {
-		shapeClip = layout.Shape.shapeClip
+		shapeClip = renderShapeClip(layout.Shape, clip, w)
 		if layout.Shape.scrollbarOrientation == scrollbarVertical {
 			shapeClip.Y = clip.Y
 			shapeClip.Height = clip.Height
@@ -69,9 +86,14 @@ func renderLayoutDepth(layout *Layout, bgColor Color, clip drawClip, w *Window, 
 			emitClipCmd(clip, w)
 		}()
 	} else if layout.Shape.Clip {
-		shapeClip = clipContentBox(layout.Shape)
+		shapeClip = clipContentBoxIn(layout.Shape,
+			renderShapeClip(layout.Shape, clip, w))
 		emitClipCmd(shapeClip, w)
+		stencil, stencilled := xfClipStencilBegin(shapeClip, w)
 		defer func() {
+			if stencilled {
+				xfClipStencilEnd(stencil, w)
+			}
 			emitClipCmd(clip, w)
 		}()
 	}
@@ -118,7 +140,7 @@ func renderLayoutDepth(layout *Layout, bgColor Color, clip drawClip, w *Window, 
 		// rasterizing fragments outside bounding rect).
 		scissored := false
 		if !layout.Shape.Clip && !layout.Shape.OverDraw {
-			shapeClip = layout.Shape.shapeClip
+			shapeClip = renderShapeClip(layout.Shape, clip, w)
 			emitClipCmd(shapeClip, w)
 			scissored = true
 		}
@@ -147,19 +169,11 @@ func renderLayoutDepth(layout *Layout, bgColor Color, clip drawClip, w *Window, 
 		}()
 	}
 
-	// Emit rotation bracket before children.
-	if turns := layout.Shape.QuarterTurns; turns > 0 {
-		cx := layout.Shape.X + layout.Shape.Width/2
-		cy := layout.Shape.Y + layout.Shape.Height/2
-		emitRenderer(RenderCmd{
-			Kind:     RenderRotateBegin,
-			RotAngle: float32(turns) * 90,
-			RotCX:    cx,
-			RotCY:    cy,
-		}, w)
-		defer func() {
-			emitRenderer(RenderCmd{Kind: RenderRotateEnd}, w)
-		}()
+	// Emit rotation bracket before children. The children are drawn in
+	// their unturned frame, so their clip is turned back into it.
+	if layout.Shape.QuarterTurns > 0 {
+		shapeClip = renderQuarterTurnBegin(layout.Shape, shapeClip, w)
+		defer renderQuarterTurnEnd(w)
 	}
 
 	color := bgColor
