@@ -1187,12 +1187,87 @@ func TestLayoutWrapRTFSkipsNonFiniteWidth(t *testing.T) {
 	if shape.TC.wrapCacheValid {
 		t.Error("a NaN width must not mark the wrap cache valid")
 	}
-	if w.viewState.rtfLayoutCache != nil {
-		if _, ok := w.viewState.rtfLayoutCache.Get(
-			rtfLayoutCacheKey(
-				rtfRunsKey(&rt), rtfStyleKey(shape.TC.rtf.rTFBaseStyle),
-				rtfMathStateKey(&rt, nil), 0, 0, 0)); ok {
-			t.Error("a NaN width poisoned the zero-width cache key")
+	if _, ok := w.viewState.rtfLayoutCache[rtfLayoutCacheKey(
+		rtfRunsKey(&rt), rtfStyleKey(shape.TC.rtf.rTFBaseStyle),
+		rtfMathStateKey(&rt, nil), 0, 0, 0)]; ok {
+		t.Error("a NaN width poisoned the zero-width cache key")
+	}
+}
+
+// rtfCachePass runs one view pass over RTF layout keys [from, to):
+// each is fetched, and shaped (stored) on a miss. It returns the hits.
+func rtfCachePass(w *Window, from, to uint64) int {
+	w.viewPass++
+	hits := 0
+	for k := from; k < to; k++ {
+		if _, ok := rtfLayoutCacheFetch(w, k); ok {
+			hits++
+			continue
 		}
+		rtfLayoutCacheStore(w, k, &glyph.Layout{})
+	}
+	return hits
+}
+
+// A view pass that shapes more RTF pieces than the minimum (a markdown
+// table of 303 cells) keeps every piece, so the next pass finds them
+// all. At a fixed 200 entries in insertion order, the cache evicted each
+// piece before the next pass asked for it, and every piece was shaped
+// again on every regenerated frame (#1049).
+func TestRtfLayoutCacheKeepsTheViewPass(t *testing.T) {
+	w := &Window{}
+	rtfCachePass(w, 0, 303)
+	if hits := rtfCachePass(w, 0, 303); hits != 303 {
+		t.Errorf("second pass hits = %d, want all 303", hits)
+	}
+}
+
+// A pass that finds old pieces and shapes new ones keeps both. The new
+// pieces must not evict the old ones the same pass already used, so the
+// pass after that finds all of them.
+func TestRtfLayoutCacheKeepsAMixedPass(t *testing.T) {
+	w := &Window{}
+	rtfCachePass(w, 0, 190)
+	if hits := rtfCachePass(w, 0, 380); hits != 190 {
+		t.Errorf("mixed pass hits = %d, want the 190 old pieces", hits)
+	}
+	if hits := rtfCachePass(w, 0, 380); hits != 380 {
+		t.Errorf("pass after the mixed pass hits = %d, want all 380", hits)
+	}
+}
+
+// A view with more pieces than the cache can hold still finds the ones
+// the cache kept; only the rest are shaped again. Insertion-order
+// eviction found none of them, because each piece was evicted before the
+// next pass reached it. A new view of the same size takes the place of
+// the old one once the old pieces have gone two passes unused.
+func TestRtfLayoutCacheHoldsPastItsMax(t *testing.T) {
+	w := &Window{}
+	const n = rtfLayoutCacheMax + 500
+	rtfCachePass(w, 0, n)
+	if hits := rtfCachePass(w, 0, n); hits != rtfLayoutCacheMax {
+		t.Errorf("second pass hits = %d, want %d", hits, rtfLayoutCacheMax)
+	}
+	if got := rtfLayoutCacheLen(w); got > rtfLayoutCacheMax {
+		t.Errorf("cached layouts = %d, want at most %d", got, rtfLayoutCacheMax)
+	}
+	rtfCachePass(w, 100_000, 100_000+n)
+	rtfCachePass(w, 100_000, 100_000+n)
+	if hits := rtfCachePass(w, 100_000, 100_000+n); hits != rtfLayoutCacheMax {
+		t.Errorf("new view: third pass hits = %d, want %d", hits, rtfLayoutCacheMax)
+	}
+}
+
+// Pieces of a large view that is gone are dropped once two passes have
+// not used them, so a window that showed a long document once does not
+// hold its layouts for the rest of its life.
+func TestRtfLayoutCacheDropsAViewThatIsGone(t *testing.T) {
+	w := &Window{}
+	rtfCachePass(w, 0, 800)
+	rtfCachePass(w, 0, 800)
+	rtfCachePass(w, 10_000, 10_050)
+	rtfCachePass(w, 10_000, 10_050)
+	if got := rtfLayoutCacheLen(w); got != 50 {
+		t.Errorf("cached layouts = %d, want the 50 still in view", got)
 	}
 }

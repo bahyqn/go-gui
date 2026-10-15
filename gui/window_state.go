@@ -164,7 +164,10 @@ type ViewState struct {
 	diagramCache  *BoundedDiagramCache
 
 	// RTF layout cache — avoids re-shaping unchanged content.
-	rtfLayoutCache *BoundedMap[uint64, rtfLayoutEntry]
+	// rtfLayoutPass is the last view pass the cache saw; a new pass
+	// drops the pieces no recent pass used (rtfLayoutCacheSync).
+	rtfLayoutCache map[uint64]rtfLayoutEntry
+	rtfLayoutPass  uint64
 	tooltip        tooltipState
 
 	// Markdown caches (lazy-init: nil until first use). Keyed on
