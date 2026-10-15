@@ -203,6 +203,9 @@ func (b *Backend) rebuildClipStack() {
 // full before the next non-SVG command.
 func (b *Backend) rebuildState(rect *clipRegion, skipRect bool) {
 	b.clipDirty = skipRect || rect != nil
+	if b.gl.preparing {
+		return // the WebGL pre-pass tracks the stacks in Go only (#1051)
+	}
 	for b.stateDepth > 0 {
 		b.ctx2d.Call("restore")
 		b.stateDepth--
@@ -252,6 +255,9 @@ func (b *Backend) pushClip(c clipRegion) {
 
 // pushBracket saves the 2D state and applies br's rotation or filter.
 func (b *Backend) pushBracket(br stateBracket) {
+	if b.gl.preparing {
+		return // the WebGL pre-pass tracks the stacks in Go only (#1051)
+	}
 	b.ctx2d.Call("save")
 	b.stateDepth++
 	if br.rotate {
@@ -670,6 +676,13 @@ func (b *Backend) drawSvg(r *gui.RenderCmd) {
 		return
 	case b.svgMode == svgModeWebGL && !b.gl.lost:
 		b.queueSvgGL(r)
+		return
+	}
+	// The context was lost during the pre-pass, which checks only at
+	// its start. The drawing pass fills these SVGs with Canvas2D; a
+	// fill here would draw each one twice, the first time with no
+	// clip or rotation (#1051).
+	if b.gl.preparing {
 		return
 	}
 	// In WebGL mode rect clips are applied lazily (drawClip), also
