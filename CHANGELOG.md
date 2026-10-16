@@ -8,6 +8,19 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Android apps can provide secure secret storage (#930).** The Android backend
+  accepts a narrow gomobile `SecretStore` callback for `LoadSecret`,
+  `SaveSecret` and `DeleteSecret`. Android applications supply and register the
+  Kotlin implementation; the Android demo provides one backed by a
+  non-exportable 256-bit Android Keystore key and AES-GCM ciphertext stored
+  atomically in `noBackupFilesDir`. An app that does not register the callback
+  still receives `ErrSecretsUnsupported`.
+- **The Android AAR now includes x86_64 (#930).** CI, the release workflow and
+  `make build-android` bind `android/arm64,android/amd64`, so the released AAR
+  runs on an x86_64 emulator as well as on arm64 devices.
+
 ### Changed
 
 - **Less work per frame for WebGL SVGs on the web (#1051).** Each frame in WebGL
