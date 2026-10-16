@@ -232,32 +232,9 @@ the `CHANGELOG.md` entry, and status rows in feature docs such as
 ### Cross-repo root-causing
 
 **A fix that does not hold is a signal the state lives in another module.**
-Before proposing a second fix at the same site, dispatch a subagent to trace
-where the state actually lives across the chain — `go-glyph` (upstream),
-`go-gui`, and the consumers (`go-charts`, `go-map`, `go-edit`, `go-kite`,
-`go-term`, `go-speedtest`). This is one of the few sanctioned uses of the Agent
-tool in this repo.
-
-The subagent reports and edits nothing: the **owning module** and the
-`file:line` the state is declared and mutated at, whether the defect is
-**upstream** or in the **consumer**, and what a fix at each layer would change.
-
-Two failure shapes motivate this. State persisting in a dependency's `StateMap`
-survives a reset the consumer performs, so patching the consumer looks correct
-and changes nothing. And a `go.work` build resolves siblings from local working
-trees, so a trace run without `GOWORK=off` can name a module version CI never
-compiles — see the `sync-siblings` skill.
-
-**go-gui CI builds against go-glyph main, not the `go.mod` pin.**
-`.github/actions/setup-go-glyph` checks out go-glyph's default branch and adds a
-`replace` onto it. When go-glyph main gains a dependency, every go-gui PR fails
-with `updates to go.mod needed`. Reproduce with `GOWORK=off`
-`go test -mod=readonly ./gui/...`. The fix is not per-PR: tag go-glyph, then
-bump go-gui to the tag
-(`GOWORK=off go get …@vX && go mod tidy && make deps-doc`). go-charts is the
-reverse: its workflows pin go-gui and go-glyph by `ref:` tag, so a `go get`-only
-bump stays green while CI still compiles the old tag. Bump those `ref:` pins in
-the same PR.
+Before a second fix at the same site, load the `cross-repo-root-cause` skill. It
+also covers go-gui CI failing with `updates to go.mod needed` (CI builds against
+go-glyph main, not the `go.mod` pin).
 
 ## Rejected Approaches
 
