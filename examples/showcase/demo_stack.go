@@ -50,8 +50,8 @@ func demoStack(w *gui.Window) gui.View {
 				Padding: gui.NoPadding,
 				VAlign:  gui.VAlignBottom,
 				Content: []gui.View{
-					demoStackAvatar(),
-					demoStackCaption(),
+					demoStackAvatar(t),
+					demoStackCaption(t),
 				},
 			}),
 		},
@@ -88,7 +88,7 @@ func demoStackCards(app *ShowcaseApp, t gui.Theme) gui.View {
 					Color:       stackDemoCards[c].color,
 					ColorBorder: gui.White,
 					Radius:      gui.RadiusMedium,
-					Padding:     gui.PadAll(10),
+					Padding:     gui.PaddingMedium,
 					Spacing:     gui.SpacingSmall,
 					OnClick: func(ctx gui.EventCtx) {
 						stackDemoRaise(appState(ctx.Window), c)
@@ -128,11 +128,16 @@ func stackDemoRaise(app *ShowcaseApp, c int) {
 	app.StackOrder[len(app.StackOrder)-1] = c
 }
 
+// stackDemoAvatarSize is the avatar's width and height. Its radius is
+// half of it, so a change to the size keeps the avatar a circle.
+const stackDemoAvatarSize = 64
+
 // demoStackAvatar puts a count badge over the top-right corner of an
 // initials avatar. The avatar's wrapper pads it away from that corner,
-// so the badge hangs over the avatar's edge.
-func demoStackAvatar() gui.View {
-	initials := gui.CurrentTheme().TextStyleTitle
+// so the badge hangs over the avatar's edge. It takes the theme from
+// demoStack, like demoStackCards, so all three demos read one theme.
+func demoStackAvatar(t gui.Theme) gui.View {
+	initials := t.TextStyleTitle
 	initials.Color = gui.White // the avatar fill is the same in every theme
 	return gui.Stack(gui.ContainerCfg{
 		ID:         "stack-avatar",
@@ -142,15 +147,15 @@ func demoStackAvatar() gui.View {
 		Content: []gui.View{
 			gui.Column(gui.ContainerCfg{
 				Sizing:     gui.FitFit,
-				Padding:    gui.NewPadding(8, 8, 0, 0),
+				Padding:    gui.NewPadding(8, 8, 0, 0), // ergonomics-audit:spacing — room for the badge to overhang the avatar's corner, not an inset
 				SizeBorder: gui.NoBorder,
 				Content: []gui.View{
 					gui.Column(gui.ContainerCfg{
-						Width:      64,
-						Height:     64,
+						Width:      stackDemoAvatarSize,
+						Height:     stackDemoAvatarSize,
 						Sizing:     gui.FixedFixed,
 						Color:      gui.Hex(0x7a4bc2),
-						Radius:     gui.RadiusPx(32),
+						Radius:     gui.RadiusPx(stackDemoAvatarSize / 2), // ergonomics-audit:spacing — half the avatar: a circle, not a control corner
 						SizeBorder: gui.NoBorder,
 						HAlign:     gui.HAlignCenter,
 						VAlign:     gui.VAlignMiddle,
@@ -177,8 +182,8 @@ func demoStackAvatar() gui.View {
 // demoStackCaption puts a translucent caption bar along the bottom of a
 // photo. The bar's wrapper fills the Stack and aligns the bar to its
 // bottom; the bar fills the width.
-func demoStackCaption() gui.View {
-	caption := gui.CurrentTheme().TextStyleBody
+func demoStackCaption(t gui.Theme) gui.View {
+	caption := t.TextStyleBody
 	caption.Color = gui.White // the bar is dark in every theme
 	return gui.Stack(gui.ContainerCfg{
 		ID:         "stack-caption",
@@ -202,7 +207,7 @@ func demoStackCaption() gui.View {
 						Color:      gui.RGBA(0, 0, 0, 150),
 						Radius:     gui.NoRadius,
 						SizeBorder: gui.NoBorder,
-						Padding:    gui.PadVH(6, 10),
+						Padding:    gui.PadVH(gui.PadSmall, gui.PadMedium),
 						Content: []gui.View{
 							gui.Text(gui.TextCfg{Text: "Caption over a photo", TextStyle: caption}),
 						},
