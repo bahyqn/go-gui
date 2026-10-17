@@ -8,6 +8,21 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **The vertical scrollbar moves to the left under RTL (#1080).** In a
+  right-to-left layout, content in a scrollable column used to run under its
+  vertical scrollbar. RTL mirrors padding, so the `Padding.Right` a container
+  keeps free for the bar ends up on the left, but the bar stayed on the right.
+  The bar now sits on the left edge under RTL, inset by `GapEdge`, as in other
+  right-to-left UIs. The horizontal bar starts after that left gutter, so in a
+  container that scrolls both ways, such as the inspector or `DataGrid`, the two
+  bars no longer overlap in the corner. A press in the horizontal bar's gutter
+  now maps against the viewport's true start. Containers that keep room for the
+  bar with `Padding.Right` need no change: the inspector, `Table`, and the
+  showcase's catalog and page panels now clear the bar in Arabic. LTR layouts
+  are unchanged.
+
 ## [v0.90.0] - 2026-10-16
 
 ### Added

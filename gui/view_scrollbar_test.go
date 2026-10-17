@@ -368,6 +368,14 @@ func TestGutterClickSetsOffsetAndLocks(t *testing.T) {
 // scrollbar override and returns the resolved track X.
 func scrollbarTrackX(t *testing.T, override *ScrollbarCfg) float32 {
 	t.Helper()
+	track, _ := scrollbarTrackV(t, override, textDirAuto)
+	return track.Shape.X
+}
+
+// scrollbarTrackV arranges a vertically scrolling column in the given
+// text direction and returns the vertical bar's track and its thumb.
+func scrollbarTrackV(t *testing.T, override *ScrollbarCfg, dir TextDirection) (track, thumb *Layout) {
+	t.Helper()
 
 	w := NewWindow(WindowCfg{State: new(int), Width: 300, Height: 200})
 	w.viewGenerator = func(*Window) View {
@@ -381,6 +389,7 @@ func scrollbarTrackX(t *testing.T, override *ScrollbarCfg) float32 {
 			Scrollable:    true,
 			ScrollMode:    ScrollVerticalOnly,
 			ScrollbarCfgY: override,
+			TextDir:       dir,
 			Content:       rows,
 		})
 	}
@@ -392,7 +401,42 @@ func scrollbarTrackX(t *testing.T, override *ScrollbarCfg) float32 {
 		t.Fatal("scroller not found")
 	}
 	// The bar is appended after the content, so it is the last child.
-	return sc.Children[len(sc.Children)-1].Shape.X
+	track = &sc.Children[len(sc.Children)-1]
+	if len(track.Children) == 0 {
+		t.Fatal("scrollbar track has no thumb")
+	}
+	return track, &track.Children[len(track.Children)-1]
+}
+
+// TestScrollbarVerticalSitsOnEndEdge pins the vertical bar to the end
+// edge: the right in LTR, the left in RTL. RTL mirrors padding, so a
+// container's Padding.Right, the usual room kept for the bar, is on
+// the left there. A bar left on the right covered the content.
+func TestScrollbarVerticalSitsOnEndEdge(t *testing.T) {
+	const winW = 300
+	size := DefaultScrollbarStyle.Size
+	gap := DefaultScrollbarStyle.GapEdge
+
+	ltr, ltrThumb := scrollbarTrackV(t, nil, TextDirLTR)
+	if got, want := ltr.Shape.X, winW-size-gap; got != want {
+		t.Errorf("LTR track X = %v, want %v (right edge, inset by GapEdge)", got, want)
+	}
+	if ltrThumb.Shape.X != ltr.Shape.X {
+		t.Errorf("LTR thumb X = %v, want the track's %v", ltrThumb.Shape.X, ltr.Shape.X)
+	}
+
+	rtl, rtlThumb := scrollbarTrackV(t, nil, TextDirRTL)
+	if got, want := rtl.Shape.X, gap; got != want {
+		t.Errorf("RTL track X = %v, want %v (left edge, inset by GapEdge)", got, want)
+	}
+	if rtlThumb.Shape.X != rtl.Shape.X {
+		t.Errorf("RTL thumb X = %v, want the track's %v", rtlThumb.Shape.X, rtl.Shape.X)
+	}
+
+	flush, _ := scrollbarTrackV(t, &ScrollbarCfg{GapEdge: SomeF(0)}, TextDirRTL)
+	if flush.Shape.X != 0 {
+		t.Errorf("RTL track X with zero GapEdge = %v, want 0 (flush left)", flush.Shape.X)
+	}
 }
 
 // TestScrollbarGapEdgeExplicitZero is why ScrollbarCfg.GapEdge is an
@@ -473,5 +517,132 @@ func TestScrollbarGapEndHorizontal(t *testing.T) {
 	trailIn := (gutterX + gutterWidth) - (track.Shape.X + track.Shape.Width)
 	if leadIn != trailIn {
 		t.Errorf("end insets = %v and %v, want equal", leadIn, trailIn)
+	}
+}
+
+// scrollbarBothRTL arranges a right-to-left container that overflows on
+// both axes and keeps room for the vertical bar with Padding.Right, as
+// the inspector and DataGrid do. It returns the container and both bar
+// tracks.
+func scrollbarBothRTL(t *testing.T, row bool) (w *Window, sc, trackX, trackY *Layout) {
+	t.Helper()
+	pad := DefaultScrollbarStyle.Size + 2*DefaultScrollbarStyle.GapEdge
+	w = NewWindow(WindowCfg{State: new(int), Width: 300, Height: 200})
+	w.viewGenerator = func(*Window) View {
+		kids := make([]View, 10)
+		for i := range kids {
+			kids[i] = Column(ContainerCfg{Sizing: FixedFixed, Width: 600, Height: 600})
+		}
+		cfg := ContainerCfg{
+			ID:         "scroller",
+			Sizing:     FillFill,
+			Scrollable: true,
+			TextDir:    TextDirRTL,
+			Padding:    NewPadding(0, pad, 0, 0),
+			Content:    kids,
+		}
+		if row {
+			return Row(cfg)
+		}
+		return Column(cfg)
+	}
+	w.markLayoutRefresh(refreshTest)
+	w.FrameFn()
+
+	found, ok := w.layout.FindByID("scroller")
+	if !ok {
+		t.Fatal("scroller not found")
+	}
+	sc = found
+	// The bars are appended after the content. The horizontal track is
+	// wider than it is tall; the vertical one is the other way round.
+	for i := len(sc.Children) - 2; i < len(sc.Children); i++ {
+		c := &sc.Children[i]
+		if c.Shape.Width > c.Shape.Height {
+			trackX = c
+		} else {
+			trackY = c
+		}
+	}
+	if trackX == nil || trackY == nil {
+		t.Fatal("want both a horizontal and a vertical bar")
+	}
+	return w, sc, trackX, trackY
+}
+
+// TestScrollbarRTLBarsDoNotOverlap: under RTL the vertical bar sits in
+// the left gutter that Padding.Right keeps for it, so the horizontal bar
+// must start after that gutter, not at Padding.Left. Before the fix both
+// bars covered the bottom-left corner.
+func TestScrollbarRTLBarsDoNotOverlap(t *testing.T) {
+	gapEnd := DefaultScrollbarStyle.GapEnd
+	for _, row := range []bool{false, true} {
+		_, sc, trackX, trackY := scrollbarBothRTL(t, row)
+		name := map[bool]string{false: "column", true: "row"}[row]
+		if end := trackY.Shape.X + trackY.Shape.Width; trackX.Shape.X < end {
+			t.Errorf("%s: horizontal track X = %v, want >= %v (right of the vertical bar)",
+				name, trackX.Shape.X, end)
+		}
+		// The track runs to the far edge, minus the zero Padding.Left
+		// and GapEnd, and no further.
+		want := sc.Shape.X + sc.Shape.Width - sc.Shape.Padding.Left - gapEnd
+		if got := trackX.Shape.X + trackX.Shape.Width; !f32AreClose(got, want) {
+			t.Errorf("%s: horizontal track right edge = %v, want %v", name, got, want)
+		}
+	}
+}
+
+// TestScrollbarRTLGutterClickMeasuresFromContentStart: a horizontal
+// gutter press maps against the viewport, which starts after the left
+// gutter under RTL. Before the fix the press was measured from
+// Padding.Left, so a press at the middle of the viewport scrolled past
+// the middle.
+func TestScrollbarRTLGutterClickMeasuresFromContentStart(t *testing.T) {
+	w, sc, _, _ := scrollbarBothRTL(t, false)
+	viewW := sc.Shape.Width - sc.Shape.paddingWidth()
+	start := sc.Shape.X + sc.Shape.Padding.Right + sc.Shape.SizeBorder
+	id := sc.Shape.idKey()
+	offsetFromMouseX(&w.layout, start+viewW/2, id, w)
+	got, _ := w.scrollX().Get(id)
+	if want := scrollMaxOffsetX(sc) / 2; !f32AreClose(got, want) {
+		t.Errorf("press at viewport middle: offset = %v, want %v", got, want)
+	}
+}
+
+// TestScrollbarVerticalEmptyKeepsGapEdge: a vertical bar over no content
+// returns before the thumb math. Its X is set before that return, so it
+// keeps the GapEdge inset in both directions. Before, the inset was
+// applied after the return, and an empty bar sat flush against the edge.
+func TestScrollbarVerticalEmptyKeepsGapEdge(t *testing.T) {
+	const winW = 300
+	size := DefaultScrollbarStyle.Size
+	gap := DefaultScrollbarStyle.GapEdge
+	for _, tc := range []struct {
+		dir  TextDirection
+		want float32
+	}{
+		{TextDirLTR, winW - size - gap},
+		{TextDirRTL, gap},
+	} {
+		w := NewWindow(WindowCfg{State: new(int), Width: winW, Height: 200})
+		w.viewGenerator = func(*Window) View {
+			return Column(ContainerCfg{
+				ID:         "scroller",
+				Sizing:     FillFill,
+				Scrollable: true,
+				ScrollMode: ScrollVerticalOnly,
+				TextDir:    tc.dir,
+			})
+		}
+		w.markLayoutRefresh(refreshTest)
+		w.FrameFn()
+		sc, ok := w.layout.FindByID("scroller")
+		if !ok || len(sc.Children) == 0 {
+			t.Fatal("scroller or its bar not found")
+		}
+		track := &sc.Children[len(sc.Children)-1]
+		if got := track.Shape.X; got != tc.want {
+			t.Errorf("dir %v: empty track X = %v, want %v", tc.dir, got, tc.want)
+		}
 	}
 }
