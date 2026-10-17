@@ -44,6 +44,68 @@ and this project adheres to
 
 ### Fixed
 
+- **The `InputDate` calendar button uses the icon font.** The button drew the 📅
+  color emoji, the only color emoji among the control icons. It ignored the
+  theme's text color and looked out of place on both light and dark themes. It
+  now draws the icon font's calendar glyph in the field's text size and color,
+  centred on its own ink like the other control icons.
+
+- **The slider thumb is visible on light themes.** The thumb is a disc in the
+  panel color, and its edge used the hairline border, so on a light page the
+  value's position showed only as the end of the colored fill. The thumb and
+  track now take the same 3:1 edge as an off checkbox. Hover used to repaint the
+  track edge in the hover fill color, which faded it out under the pointer; it
+  now makes the edge stronger.
+
+- **Unchecked checkboxes, radios and switches are visible on every theme.** An
+  off control drew its edge in the shared hairline border color, which measured
+  1.1 to 1.4 against the page on the light presets, so an unchecked box nearly
+  disappeared. The off switch's thumb was fainter still. These controls now take
+  an edge color that reaches 3:1 on the page and on a panel, the WCAG 1.4.11
+  floor for the parts of a control that show where it is. The switch's off thumb
+  takes the same color. A radio under the pointer or pressed no longer fades its
+  ring: the ring gets stronger instead. Other borders keep the hairline.
+
+- **List box and select subheadings read as group labels.** A subheading used
+  the same text style as the rows under it, so nothing set it apart, and the
+  rule under it was drawn in the full text color: a heavy line across the list.
+  The default subheading now takes the secondary text role, as the style guide
+  records for list subheadings, and the rule takes the theme's separator color.
+  `ListBoxCfg.SubheadingStyle` and `SelectCfg.SubheadingStyle` set by the app
+  still win; the rule no longer follows their color.
+
+- **Data grid filter text lines up with the column's values.** The filter input
+  had no side inset, so its placeholder and typed text sat on the left grid
+  line, 5px left of the values below it. The input now takes the cells' side
+  inset. It still fills the cell, so its fill meets the grid lines.
+
+- **Data grid cells draw clean grid lines.** Header, filter and data cells left
+  their corner radius unset, so each took the theme's control radius. The cell
+  borders overlap into shared grid lines, and the rounded corners cut a notch at
+  every intersection: the grid looked like a sheet of separate boxes. Cells are
+  now square. The grid's outer frame still takes `DataGridCfg.Radius`.
+
+- **Markdown syntax colors are readable on every theme.** Keywords, strings,
+  numbers, types and function names used fixed mid-tone colors that measured 2.5
+  to 4.4 against the code fill, below the 4.5:1 that body text needs, on both
+  light and dark presets. Each color now keeps its hue and moves on lightness
+  until it reads at 4.5:1 over the code fill. The colors are derived once per
+  theme, so `DefaultMarkdownStyle` costs no more per frame than before.
+
+- **Markdown code on light themes is a light wash, not a gray slab.** Fenced
+  blocks and inline code painted one black fill at 20% on every theme. On a
+  light page that gave a mid-gray block (contrast 1.58 against the page), and on
+  a dark page it was close to invisible (1.05). The fill now follows the theme's
+  polarity: a faint dark wash on light themes and a faint light wash on dark
+  themes, both near 1.1 against the page. A `MarkdownStyle.CodeBlockBG` set by
+  the app is unchanged.
+
+- **The Markdown copy button no longer covers the first line of text.** The
+  document copy button floats over the top-right corner. A first paragraph or
+  code block that used the full width ran under the icon, so a word was hidden.
+  The first block now stops short of the button. Later blocks keep the full
+  width.
+
 - **Select keyboard scroll tracks the measured row height.** The scroll offset
   for keyboard navigation estimated the dropdown row from the nominal text size,
   while the laid-out row uses the measured font height, so under a custom text

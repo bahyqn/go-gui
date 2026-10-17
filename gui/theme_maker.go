@@ -140,6 +140,10 @@ func ThemeMaker(cfg ThemeCfg) Theme {
 		errorSubtle = subtleFor(colorError, ts.Color, cfg.ColorBackground)
 	}
 
+	// Off checkbox, radio, switch and the slider: see controlEdgeFor.
+	controlEdge := controlEdgeFor(cfg.ColorBorder, cfg.ColorBackground, cfg.ColorPanel)
+	edgeActive := controlEdgeActiveFor(controlEdge, cfg.ColorBackground, cfg.ColorPanel)
+
 	borderFocus := cfg.ColorBorderFocus
 	// Unset means "not specified" (Color carries its own set flag),
 	// so an explicit fully-transparent focus border stays honorable
@@ -284,10 +288,10 @@ func ThemeMaker(cfg ThemeCfg) Theme {
 			Size: cfg.SizeRadio,
 			Colors: ColorSet{
 				Base:        cfg.ColorPanel,
-				Hover:       cfg.ColorHover,
-				Click:       cfg.ColorActive,
+				Hover:       edgeActive,
+				Click:       edgeActive,
 				Focus:       colorSelect,
-				Border:      cfg.ColorBorder,
+				Border:      controlEdge,
 				BorderFocus: borderFocus,
 			},
 			ColorSelect: colorSelect,
@@ -313,11 +317,11 @@ func ThemeMaker(cfg ThemeCfg) Theme {
 				Hover:       cfg.ColorHover,
 				Click:       cfg.ColorInterior,
 				Focus:       cfg.ColorInterior,
-				Border:      cfg.ColorBorder,
+				Border:      controlEdge,
 				BorderFocus: borderFocus,
 			},
 			ColorSelect:     colorSelect,
-			colorUnselect:   cfg.ColorActive,
+			colorUnselect:   controlEdge,
 			Padding:         paddingThree,
 			SizeBorder:      cfg.SizeBorder,
 			Radius:          radiusLarge * 2,
@@ -330,7 +334,7 @@ func ThemeMaker(cfg ThemeCfg) Theme {
 				Hover:       cfg.ColorHover,
 				Click:       cfg.ColorInterior,
 				Focus:       cfg.ColorInterior,
-				Border:      cfg.ColorBorder,
+				Border:      controlEdge,
 				BorderFocus: borderFocus,
 			},
 			ColorSelect: cfg.ColorInterior,
@@ -368,7 +372,7 @@ func ThemeMaker(cfg ThemeCfg) Theme {
 			SizeBorder:        cfg.SizeBorder,
 			Radius:            cfg.RadiusMedium,
 			textStyleNormal:   ts,
-			subheadingStyle:   ts,
+			subheadingStyle:   textSecondary, // hierarchy by color, body weight (style guide)
 			PlaceholderStyle:  textPlaceholder,
 		},
 		listBoxStyle: ListBoxStyle{
@@ -384,7 +388,7 @@ func ThemeMaker(cfg ThemeCfg) Theme {
 			SizeBorder:      cfg.SizeBorder,
 			Radius:          cfg.Radius,
 			textStyleNormal: ts,
-			subheadingStyle: ts,
+			subheadingStyle: textSecondary, // hierarchy by color, body weight (style guide)
 		},
 		treeStyle: TreeStyle{
 			Colors: ColorSet{
@@ -505,10 +509,10 @@ func ThemeMaker(cfg ThemeCfg) Theme {
 			ThumbSize: cfg.SizeSliderThumb,
 			Colors: ColorSet{
 				Base:        cfg.ColorInterior,
-				Hover:       cfg.ColorHover,
+				Hover:       edgeActive,
 				Click:       cfg.ColorActive,
 				Focus:       colorSelect,
-				Border:      cfg.ColorBorder,
+				Border:      controlEdge,
 				BorderFocus: borderFocus,
 			},
 			colorThumb: cfg.ColorPanel,

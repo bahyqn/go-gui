@@ -6,6 +6,7 @@ package gui
 import (
 	"context"
 	"log"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-gui-org/go-gui/gui/highlight"
@@ -93,6 +94,8 @@ func DefaultMarkdownStyle() MarkdownStyle {
 	code := guiTheme.TextStyleCode
 	code.Size = text.Size - 2 // ergonomics-audit:visual — mono x-height match, see above
 
+	pal := markdownCodePaletteFor(&guiTheme)
+
 	return MarkdownStyle{
 		Text:       text,
 		H1:         guiTheme.TextStyleDisplay,
@@ -109,15 +112,15 @@ func DefaultMarkdownStyle() MarkdownStyle {
 		Code:          code,
 		codeBlockText: guiTheme.TextStyleCodeSmall,
 		// Non-text fills, exempt from the dimming roles (audit §1.2).
-		CodeBlockBG:       RGBA(0, 0, 0, 50), // ergonomics-audit:visual
-		codeKeywordColor:  guiTheme.ColorSelect,
-		codeStringColor:   RGB(75, 125, 75),
-		codeNumberColor:   RGB(169, 114, 62),
+		CodeBlockBG:       pal.wash,
+		codeKeywordColor:  pal.keyword,
+		codeStringColor:   pal.str,
+		codeNumberColor:   pal.number,
 		codeCommentColor:  guiTheme.TextStyleSecondary.Color,
 		codeOperatorColor: guiTheme.TextStyleBody.Color,
-		codeTypeColor:     RGB(78, 140, 178),
-		codeFunctionColor: RGB(160, 100, 170),
-		codeBuiltinColor:  RGB(78, 140, 178),
+		codeTypeColor:     pal.typ,
+		codeFunctionColor: pal.function,
+		codeBuiltinColor:  pal.typ,
 		hRColor:           guiTheme.ColorBorder,
 		linkColor:         guiTheme.TextStyleLink.Color,
 		blockquoteBorder:  guiTheme.ColorBorder,
@@ -141,6 +144,68 @@ func DefaultMarkdownStyle() MarkdownStyle {
 		mathDPIInline:    200,
 		mermaidBG:        RGBA(248, 248, 255, 255),
 	}
+}
+
+// markdownCodePalette is the code fill and the syntax colors derived
+// from one theme. Deriving the syntax colors walks lightness in OKLCH
+// (readableOn) and costs about 12µs, while DefaultMarkdownStyle runs
+// every frame for each document without its own style. So the result
+// is kept for the last theme id. A theme fade gives each blended frame
+// a new id, so a fade recomputes once per frame and never reads a
+// stale palette.
+type markdownCodePalette struct {
+	themeID  uint64
+	wash     Color
+	keyword  Color
+	str      Color
+	number   Color
+	typ      Color
+	function Color
+}
+
+var markdownCodePaletteCache atomic.Pointer[markdownCodePalette]
+
+// markdownCodePaletteFor returns the palette for t, from the cache when
+// t is the theme it was built for. A miss allocates one palette.
+func markdownCodePaletteFor(t *Theme) *markdownCodePalette {
+	if p := markdownCodePaletteCache.Load(); p != nil && p.themeID == t.id {
+		return p
+	}
+	// Syntax colors keep their hue but move on lightness until they
+	// read as body text (4.5:1) on the code fill, over both surfaces a
+	// document sits on. The base hues are mid-tones: as they were, they
+	// fell to 2.5..4.4 on every preset, light and dark.
+	wash := markdownCodeWash(t)
+	fills := [2]Color{wash.Over(t.ColorBackground), wash.Over(t.ColorPanel)}
+	syntax := func(c Color) Color {
+		return readableOn(c, contrastText, fills[:]...)
+	}
+	p := &markdownCodePalette{
+		themeID:  t.id,
+		wash:     wash,
+		keyword:  syntax(t.ColorSelect),
+		str:      syntax(RGB(75, 125, 75)),
+		number:   syntax(RGB(169, 114, 62)),
+		typ:      syntax(RGB(78, 140, 178)),
+		function: syntax(RGB(160, 100, 170)),
+	}
+	markdownCodePaletteCache.Store(p)
+	return p
+}
+
+// markdownCodeWash is the fill under code: a fenced block and inline
+// code. It follows the theme's polarity, the same comparison
+// textRolesFor makes. A light theme takes a faint dark wash and a dark
+// theme a faint light one, so code lifts off the page by about the same
+// small step on both (contrast near 1.1 against the page). One black
+// wash for both read as a gray slab on light pages (1.58) and was near
+// invisible on dark ones (1.05).
+func markdownCodeWash(t *Theme) Color {
+	if srgbLuminance(t.TextStyleBody.Color) <
+		srgbLuminance(t.ColorBackground) {
+		return RGBA(0, 0, 0, 12) // ergonomics-audit:visual
+	}
+	return RGBA(255, 255, 255, 10) // ergonomics-audit:visual
 }
 
 // MarkdownCfg configures a Markdown View. Mode defaults to wrapped text.
@@ -410,6 +475,21 @@ func (mv *markdownView) GenerateLayout(w *Window) Layout {
 	if mode == TextModeWrap ||
 		mode == TextModeWrapKeepSpaces {
 		sizing = FillFit
+	}
+
+	// The document copy button floats over the top-right corner, on
+	// top of the first block. A first block that runs the full width
+	// (a long paragraph, a code block) would have its first line drawn
+	// under the button, so pull that block's right edge in by the
+	// width the button covers. Later blocks start below the button and
+	// keep the full width.
+	if len(content) > 0 {
+		content[0] = Row(ContainerCfg{
+			Sizing:     FillFit,
+			SizeBorder: NoBorder,
+			Padding:    NewPadding(0, mdCopyButtonReserve(), 0, 0),
+			Content:    []View{content[0]},
+		})
 	}
 
 	// Document-level copy button. Scoped to the document: a constant

@@ -180,9 +180,12 @@ func demoWrapPanel(_ *gui.Window) gui.View {
 
 func demoOverflowPanel(w *gui.Window) gui.View {
 	t := gui.CurrentTheme()
+	// The subtle washes are made to sit under body text. The raw status
+	// colors are fills for a badge or toast accent: under the body
+	// color they read at about 2:1.
 	colors := []gui.Color{
-		t.ColorActive, t.Cfg.ColorSuccess, t.Cfg.ColorWarning, t.Cfg.ColorError,
-		t.ColorActive, t.Cfg.ColorSuccess, t.Cfg.ColorWarning, t.Cfg.ColorError,
+		t.ColorActive, t.ColorSuccessSubtle, t.ColorWarningSubtle, t.ColorErrorSubtle,
+		t.ColorActive, t.ColorSuccessSubtle, t.ColorWarningSubtle, t.ColorErrorSubtle,
 	}
 	items := make([]gui.OverflowItem, len(colors))
 	for i := range items {
@@ -648,7 +651,9 @@ func multiWindowStatus(t gui.Theme, active bool) gui.View {
 	if active {
 		text = "Child window is open"
 		color = t.TextStyleBodySmall.Bold()
-		color.Color = t.Cfg.ColorSuccess
+		// The success text role, not the success fill: the fill is
+		// picked for badges and reads at about 3:1 as text on light.
+		color.Color = t.TextStyleSuccess.Color
 	}
 	return gui.Text(gui.TextCfg{Text: text, TextStyle: color})
 }
@@ -669,7 +674,7 @@ func demoPrinting(w *gui.Window) gui.View {
 					gui.Button(gui.ButtonCfg{
 						ID: "btn-export-pdf",
 						Content: []gui.View{
-							gui.Text(gui.TextCfg{Text: gui.IconExport, TextStyle: t.TextStyleBody}),
+							gui.Text(gui.TextCfg{Text: gui.IconExport, TextStyle: t.TextStyleIconMedium}),
 							gui.Text(gui.TextCfg{Text: "Export PDF", TextStyle: t.TextStyleBody}),
 						},
 						OnClick: func(ctx gui.EventCtx) {
@@ -690,7 +695,7 @@ func demoPrinting(w *gui.Window) gui.View {
 					gui.Button(gui.ButtonCfg{
 						ID: "btn-print",
 						Content: []gui.View{
-							gui.Text(gui.TextCfg{Text: gui.IconPrint, TextStyle: t.TextStyleBody}),
+							gui.Text(gui.TextCfg{Text: gui.IconPrint, TextStyle: t.TextStyleIconMedium}),
 							gui.Text(gui.TextCfg{Text: "Print", TextStyle: t.TextStyleBody}),
 						},
 						OnClick: func(ctx gui.EventCtx) {
