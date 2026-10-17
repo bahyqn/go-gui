@@ -44,6 +44,23 @@ and this project adheres to
 
 ### Fixed
 
+- **Select keyboard scroll tracks the measured row height.** The scroll offset
+  for keyboard navigation estimated the dropdown row from the nominal text size,
+  while the laid-out row uses the measured font height, so under a custom text
+  size the highlighted option could stop half-visible. The estimate now uses the
+  text measurer with the nominal size as fallback.
+
+- **Input drag-scroll stays inside the viewport under RTL (#1091).** Under
+  right-to-left layout the viewport starts after `Padding.Right`, but the
+  drag-scroll band at the edges used `Padding.Left`, so dragging near an edge
+  scrolled against the wrong band. Both edges now use the mirrored origin and
+  include `SizeBorder` like the content box. LTR layouts are unchanged.
+
+- **The inspector padding wireframe mirrors under RTL (#1090).** The wireframe
+  used `Padding.Left` as its origin in both directions, so under RTL it drew
+  offset from the content box it annotates. It now uses `Padding.Right` under
+  RTL and includes `SizeBorder` in the inset. LTR layouts are unchanged.
+
 - **The vertical scrollbar moves to the left under RTL (#1080).** In a
   right-to-left layout, content in a scrollable column used to run under its
   vertical scrollbar. RTL mirrors padding, so the `Padding.Right` a container
