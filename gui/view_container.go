@@ -378,6 +378,12 @@ func (cv *containerView) GenerateLayout(w *Window) Layout {
 		// so only a button without one skips moves inside it (#973).
 		layout.Shape.events.hoverStatic = cv.userOnHover == nil
 	}
+	if cfg.Title != "" && w != nil {
+		// Reserve the eraser, the label and the content in one arena
+		// slice. Growing Children from nil for the two title shapes
+		// allocated twice per frame.
+		layout.Children = w.scratch.takeLayoutChildren(2 + len(cv.content))
+	}
 	addGroupBoxTitle(cfg.Title, cfg.TitleBG, cfg.ColorBorder,
 		cfg.Disabled, w, &layout)
 	// Content children append after the group-box eraser + label, which
@@ -472,10 +478,13 @@ func addGroupBoxTitle(title string, titleBG, colorBorder Color,
 		Color:     textColor,
 		Opacity:   1.0,
 		Float:     true,
-		TC: &shapeTextConfig{
+		// Both from the view-phase arena: a literal here and &ts each
+		// moved to the heap, two allocations per titled container per
+		// frame.
+		TC: w.allocTextConfig(shapeTextConfig{
 			Text:      title,
-			TextStyle: &ts,
-		},
+			TextStyle: w.allocTextStyle(ts),
+		}),
 	}
 	layout.Children = append(layout.Children, Layout{
 		Shape: w.allocShape(textShape),
@@ -540,19 +549,19 @@ func makeContainerEvents(c *ContainerCfg) (eventHandlers, bool) {
 	}, true
 }
 
-func makeContainerA11Y(c *ContainerCfg) *accessInfo {
+func makeContainerA11Y(c *ContainerCfg, w *Window) *accessInfo {
 	if c.a11Y != nil {
 		return c.a11Y
 	}
-	info := c.a11yInfo("")
+	info := c.a11yInfo(w, "")
 	if !c.A11YValue.IsSet() {
 		return info
 	}
 	// a11yInfo returns nil when there is no label or description, and a
-	// fresh pointer otherwise, so filling in the value never touches a
+	// fresh arena slot otherwise, so filling in the value never touches a
 	// shared accessInfo.
 	if info == nil {
-		info = &accessInfo{}
+		info = w.allocAccessInfo(accessInfo{})
 	}
 	info.ValueNum = c.A11YValue.Now
 	info.ValueMin = c.A11YValue.Min
@@ -639,7 +648,7 @@ func buildContainerShape(cfg *ContainerCfg, w *Window) Shape {
 		Opacity:              cfg.Opacity.Get(1.0),
 		A11YRole:             deriveContainerA11YRole(cfg),
 		A11YState:            cfg.A11YState,
-		a11Y:                 makeContainerA11Y(cfg),
+		a11Y:                 makeContainerA11Y(cfg, w),
 	}
 	if fx, ok := makeContainerEffects(cfg); ok {
 		shape.fx = w.allocEffects(fx)
