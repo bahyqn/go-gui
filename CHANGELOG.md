@@ -10,6 +10,37 @@ and this project adheres to
 
 ### Added
 
+- **Custom shaders get Shadertoy's built-in inputs for size, time and frame
+  (#573).** Each `RenderCustomShader` command now carries a built-in block,
+  filled in while the frame's commands are built: `iResolution`, `iTime`,
+  `iTimeDelta` and `iFrame`. Units follow Shadertoy, so a copied shader reads
+  them unchanged: sizes are physical pixels. A backend reads the block with
+  `RenderCmd.ShaderBuiltinsAt(scale)`, which converts sizes with the scale of
+  the frame being drawn, so the first frame on a HiDPI display is right as well.
+  Time and frame advance once per displayed frame and read zero in headless
+  captures and for a user who asked for reduced motion. `iTimeDelta` is capped
+  at 0.25 s, so the first frame after a pause does not jump. `iMouse` is not
+  tracked: it reads zero, Shadertoy's value for a canvas never clicked. The GLSL
+  wrapper (`BuildGLSLFragment`, `BuildGLSLESFragment`) declares the five names
+  as globals, so a GLSL body can use them as written; a body that declares its
+  own `iTime` hides the built-in and still compiles. The Metal wrapper, shared
+  by macOS and iOS, declares them as locals and runs the body in a nested block,
+  so the same holds for an MSL body. Every GPU backend uploads the block on
+  every custom-shader draw: desktop GL (Linux, Windows), WebGL2, Android, macOS
+  and iOS.
+
+- **`Shader.Animate` keeps an animated shader moving without a view rebuild
+  (#573).** An animated shader used to need a repeating `Animate` with an empty
+  callback, which rebuilt the view and the layout on every frame, and an app had
+  to remove it again when the shader left the screen. With
+  `Shader.Animate: true` the window keeps frames coming while such a shader is
+  drawn, and each frame rebuilds only the render commands, where `iTime` is
+  filled in. Frames stop in the first frame that draws no `Animate` shader, so
+  an idle window stays idle. For a user who asked for reduced motion the shader
+  holds still, as in a headless capture: its clock reads zero and no frames
+  start. `examples/custom_shader` and the showcase's shader page now use `iTime`
+  and `Animate`, with no clock or animation of their own.
+
 - **`llms.txt` at the repository root gives AI coding tools a map of Go-Gui
   (#1092).** The file follows the llms.txt format. It states the API rules that
   compile when broken but give wrong behavior: `Cfg` structs, `ctx.Consume()`,
@@ -62,6 +93,21 @@ and this project adheres to
   `Title` no longer allocates on each frame; it allocated four objects before.
 
 ### Fixed
+
+- **A GLSL shader body may reuse the wrapper's variable names (#573).** The GLSL
+  wrapper spliced the body into `main` beside its own locals (`d`, `q`, `pos`,
+  `radius`, `sdf_alpha` and others), so a body that declared one of these common
+  names failed to compile, and the container drew nothing on desktop GL, WebGL2
+  and Android. The Metal wrapper already runs the body in a nested block. The
+  GLSL wrapper now does the same, so the same body compiles on every backend.
+
+- **`ShaderHash` keys on both shader bodies (#573).** The custom-shader cache
+  key hashed only the Metal body on macOS and only the GLSL body everywhere
+  else. iOS reports `GOOS` `ios`, so its Metal backend keyed on the GLSL body:
+  two shaders with the same GLSL and different Metal shared one compiled
+  pipeline, and every Metal-only shader shared the key of an empty string. The
+  key now hashes the Metal body, a separator and the GLSL body, so a change to
+  either body gives a new key on every backend.
 
 - **Apps can set where toasts stack again, with `ThemeCfg.ToastAnchor`
   (#1103).** #702 made the anchor settable (#698), but #735 made the toast style
