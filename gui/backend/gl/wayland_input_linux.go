@@ -321,8 +321,10 @@ func (s *wlSeat) pointerButton(serial, _ uint32, button, state uint32) {
 func (s *wlSeat) pointerAxis(_, axis uint32, value wl.Fixed) {
 	s.axis.addValue(axis, value.Float())
 	// Before wl_pointer v5 there is no frame event to group axis events,
-	// so each one is a scroll of its own.
+	// so each one is a scroll of its own; nor are there wheel clicks or
+	// an axis source (see wlAxisAcc.legacy).
 	if s.pointer.Version() < 5 {
+		s.axis.legacy = true
 		s.pointerFrame()
 	}
 }
@@ -353,7 +355,14 @@ type wlAxisAcc struct {
 	value120 [2]int32   // wheel clicks × 120
 	has      [2]bool    // the axis moved this frame
 	wheel    [2]bool    // the axis had wheel clicks
+	// legacy marks a seat before wl_pointer v5, which sends a wheel as
+	// continuous values only, like a touchpad (#1110).
+	legacy bool
 }
+
+// wlLegacyUnitsPerClick is the continuous axis value a pre-v5 seat
+// sends per wheel click.
+const wlLegacyUnitsPerClick = 10
 
 func (a *wlAxisAcc) addValue(axis uint32, v float64) {
 	if axis > 1 || v != v { // unknown axis, NaN
@@ -371,11 +380,19 @@ func (a *wlAxisAcc) addValue120(axis uint32, v int32) {
 	a.wheel[axis] = true
 }
 
+// wlPreciseLinesPerPoint converts touchpad points to the fractional
+// lines gui.Event carries for a precise scroll. It is the factor the
+// macOS backend applies to AppKit's precise deltas (kPreciseScrollScale
+// in metal_window_darwin.m), so a touchpad moves the same 1.5 px per
+// point of finger travel under the default ScrollMultiplier on both.
+// Raw points made Wayland touchpads scroll 20x the finger (#1110).
+const wlPreciseLinesPerPoint = 0.075
+
 // take returns the frame's scroll in gui units and clears it. A wheel
 // reports lines (x11ScrollLines per click, as on X11); a touchpad reports
-// points of finger travel, precise. Wayland's positive axis scrolls down
-// or right, the opposite of gui's, hence the sign. ok is false when
-// nothing scrolled.
+// fractional lines (wlPreciseLinesPerPoint), precise. Wayland's positive
+// axis scrolls down or right, the opposite of gui's, hence the sign. ok
+// is false when nothing scrolled.
 func (a *wlAxisAcc) take() (sx, sy float32, precise, ok bool) {
 	defer func() { *a = wlAxisAcc{} }()
 	if !a.has[0] && !a.has[1] {
@@ -389,7 +406,16 @@ func (a *wlAxisAcc) take() (sx, sy float32, precise, ok bool) {
 		const perClick = x11ScrollLines / 120
 		return -float32(a.value120[1]) * perClick, -float32(a.value120[0]) * perClick, false, true
 	}
-	return -float32(a.value[1]), -float32(a.value[0]), true, true
+	if a.legacy {
+		// No clicks and no axis source: a wheel and a touchpad look
+		// alike. Read it as a wheel, the likelier device on a seat this
+		// old; the touchpad conversion below would scroll a notch 0.75
+		// lines (#1110).
+		const perUnit = x11ScrollLines / wlLegacyUnitsPerClick
+		return -float32(a.value[1]) * perUnit, -float32(a.value[0]) * perUnit, false, true
+	}
+	return -float32(a.value[1]) * wlPreciseLinesPerPoint,
+		-float32(a.value[0]) * wlPreciseLinesPerPoint, true, true
 }
 
 // --- keyboard ---
