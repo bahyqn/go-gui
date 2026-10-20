@@ -267,3 +267,10 @@ Full history and rationale in `docs/specs/cgo-free-backend-feasibility.md`.
 - Exception: a large multi-phase effort may be checked in as a spec while
   unbuilt (`Status: **planned**`) with a phasing table updated in each phase's
   PR — `docs/specs/visual-refresh.md` is the model.
+
+## GitHub CLI section
+
+- Before saying a PR 'closes' an issue, check
+  `gh pr view <n> --json closingIssuesReferences`.
+- Before saying a repo 'needs no release', compare git tags against
+  `gh release list`. Tags and release objects are different things.

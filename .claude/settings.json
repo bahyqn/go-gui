@@ -7,6 +7,10 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/go-edit-check.sh\" pre"
+          },
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path'); case \"$f\" in *.go) gofmt -w \"$f\"; n=$(wc -l < \"$f\"); [ \"$n\" -gt 800 ] && echo \"WARNING: $f is $n lines (limit 800)\" >&2 && exit 2; esac; exit 0"
           }
         ]
       }
