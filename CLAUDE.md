@@ -8,13 +8,9 @@ for import paths, module names and URLs.
 ## Commands
 
 ```
-go run ./examples/get_started/  # run the example app
 make prepush                    # full gate (race, cross-lint, cross-compile, coverage, export audit)
                                 # .githooks/pre-push runs prepush
-make check-all                  # test + lint + check, one step after another
 make check                      # fast gate (vet, deps-doc, large-files, generate/tidy/fmt-md/changelog checks, ergonomics-audit gates)
-make test / lint / vet          # individually
-make fmt-md                     # Prettier over tracked .md (.prettierrc holds the flags)
 make ergonomics-audit           # focus/callbacks/opt/ids/literals/theme/a11y/visual/deadcfg gates
 make export-audit               # exported surface (advisory in-repo)
 git config core.hooksPath .githooks  # enable tracked hooks
@@ -34,14 +30,7 @@ Gate failures that are environment state, not code:
 
 ## Architecture
 
-Immediate-mode pipeline. No virtual DOM, no diffing:
-
-```
-View fn → generateViewLayout() → Layout tree
-  → layoutArrange() (Fit/Fixed/Fill sizing)
-  → renderLayout() (emits into w.renderers)
-  → Backend (Metal on macOS; native GL on Linux/Windows)
-```
+Immediate-mode pipeline. No virtual DOM, no diffing.
 
 - **Packages stay flat.** Only leaf subsystems (`svg/`, `datagrid/`,
   `markdown/`, `backend/`, …) get subpackages; `gui/` holds widget factories,
@@ -181,8 +170,6 @@ the `CHANGELOG.md` entry, and status rows in feature docs such as
 
 - **No variable shadowing.** Never `:=` redeclare a var from an outer scope. Use
   `=`, or pick a distinct name.
-- Committed code must pass `golangci-lint run ./...` and `gofmt`. A PostToolUse
-  hook auto-runs lint-fix + tests on every .go edit.
 - **Minimal scoped diffs.** Touch only what the request needs. No cosmetic
   comment/formatting churn, no drive-by edits. Rename/regex passes must not
   alter comment prose (for example, apostrophes in possessives).
