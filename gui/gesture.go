@@ -22,6 +22,10 @@ const (
 	gestureSwipeVelocity   float32 = 500   // px/s
 	gestureDoubleTapRadius float32 = 30
 	gestureVelocitySmooth  float32 = 0.2 // EMA factor
+	// touchPressCrossRatio is how many times farther a pan must run across
+	// a scrollable's axis than along it to go to the widget under the
+	// finger instead of scrolling (touch_press.go).
+	touchPressCrossRatio float32 = 2
 
 	gestureLongPressAnimID = "__gesture_long_press__"
 )
@@ -60,6 +64,9 @@ type gestureState struct {
 	panScrollID string
 	panScrollV  bool
 	panScrollH  bool
+	// panVertical is the pan's axis at recognition: true when the finger
+	// had moved at least as far up or down as sideways.
+	panVertical bool
 	// panSamples holds the single finger's recent positions, newest
 	// at panSampleN-1, for the fling's release velocity
 	// (panReleaseVelocity).
@@ -83,7 +90,13 @@ type gestureState struct {
 	gestureType GestureType
 
 	mouseEmitted bool
-	recognized   bool
+	// pressHeld is a touch press held back until the finger shows
+	// a tap or a scroll; pressScan what the paths under it hold: the
+	// axes the scrollable can scroll, the scrollbar it landed on
+	// (touch_press.go).
+	pressHeld  bool
+	pressScan  touchPressScan
+	recognized bool
 	// pinchBegan mirrors rotateBegan: pinch and rotate are
 	// independent sub-states of one multi-touch, tracked
 	// separately so both get their Began and Ended.
@@ -162,7 +175,7 @@ func handleTouchBegan(
 	if gs.numTouches == 1 {
 		// First finger down. It catches content still gliding from
 		// the last fling.
-		scrollMomentumStop(w)
+		w.scratch.flungIDs = scrollMomentumStop(w, w.scratch.flungIDs[:0])
 		t := gs.touches[0]
 		gs.panSampleReset(gs.now(), t.x, t.y)
 		gs.beganTime = gs.now()
@@ -180,12 +193,12 @@ func handleTouchBegan(
 		// Arm long-press timer.
 		armLongPress(gs, layout, w)
 
-		// Synthesize mouse down.
-		synthMouse(EventMouseDown, t.x, t.y, MouseLeft, layout, w)
-		gs.mouseEmitted = true
+		// Synthesize mouse down, or hold it back in a scrollable.
+		touchPressDown(gs, layout, w, t.x, t.y, w.scratch.flungIDs)
 	} else {
 		// Second+ finger: cancel single-touch gesture.
 		cancelLongPress(w)
+		gs.touchPressDrop()
 		if gs.mouseEmitted {
 			t := gs.touches[0]
 			synthMouse(EventMouseUp, t.x, t.y, MouseLeft, layout, w)
@@ -238,6 +251,8 @@ func handleTouchMoved(
 				gs.prevTime = gs.now()
 				gs.prevX = gs.startX
 				gs.prevY = gs.startY
+				gs.panVertical = f32Abs(dy) >= f32Abs(dx)
+				touchPressOnPan(gs, layout, w, dx, dy)
 				emitGesture(gs, GesturePan, gesturePhaseBegan,
 					t.x, t.y, layout, w)
 				return
@@ -423,7 +438,19 @@ func endAllTouches(
 		emitGesture(gs, GestureLongPress, gesturePhaseEnded,
 			gs.startX, gs.startY, layout, w)
 	} else if !gs.recognized {
-		endMaybeTap(gs, layout, w)
+		if gs.pressHeld && gs.pressScan.caught {
+			// A tap that caught a fling only stops it, as on iOS and
+			// Android: the row under the finger is not picked. Only the
+			// gliding container's own taps: a fling in another list does
+			// not swallow a tap here. A press already sent at touch-down
+			// (outside any scrollable) cannot be taken back, so that tap
+			// stays a tap.
+			gs.touchPressDrop()
+		} else {
+			// A tap: the press held back goes out now, ahead of it.
+			touchPressSend(gs, layout, w)
+			endMaybeTap(gs, layout, w)
+		}
 	}
 
 	// Synthesize mouse up for compat, at the release
@@ -545,9 +572,8 @@ func reseedRemainingFinger(
 	// this finger is physically down, so press anew for
 	// click compat and re-arm the long-press timer.
 	armLongPress(gs, layout, w)
-	synthMouse(EventMouseDown, t.x, t.y, MouseLeft,
-		layout, w)
-	gs.mouseEmitted = true
+	// Nothing was caught: this finger did not land on a fling.
+	touchPressDown(gs, layout, w, t.x, t.y, nil)
 }
 
 func handleTouchCancelled(
@@ -610,6 +636,8 @@ func gestureLongPressFired(_ *Animate, w *Window) {
 	if dx*dx+dy*dy > gesturePanDist*gesturePanDist {
 		return
 	}
+	// The press held back comes first, as a press at touch-down did.
+	touchPressSend(gst, dialogRoute(w), w)
 	gst.recognized = true
 	gst.gestureType = GestureLongPress
 	emitGesture(gst, GestureLongPress, gesturePhaseBegan,
